@@ -37,6 +37,10 @@ data _+1 (X : Set) : Set where
    i : X → X +1
    ⋆ : X +1
 
+_+1f : ∀ {X Y : Set} (f : X → Y) → X +1 → Y +1
+(f +1f) (i x) = i (f x)
+(f +1f) ⋆ = ⋆
+
 -- some lemmas about map
 map-∘ : ∀ {i j k} {A : Type i} {B : Type j} (f : A → B)
   {C : Type k} (g : C → A)  l → map f (map g l) ≡ map (λ x → f (g x)) l
@@ -51,10 +55,13 @@ module _ {a b} {A : Set a} {B : Set b} where
   map-++-commute f nil       ys = idp
   map-++-commute f (x ∷ xs) ys = ap (f x ∷_) (map-++-commute f xs ys)
 
+module _ {a} {A : Set a} where
 
-_+1f : ∀ {X Y : Set} (f : X → Y) → X +1 → Y +1
-(f +1f) (i x) = i (f x)
-(f +1f) ⋆ = ⋆
+  map-id : map {A = A}(λ x → x) ∼ (λ x → x)
+  map-id nil       = idp
+  map-id (x ∷ xs) = ap (x ∷_) (map-id xs)
+
+
 
 {- -- Lambda calculus
 
@@ -164,6 +171,19 @@ app t u [ f ] = app (t [ f ])(u [ f ])
 {-# REWRITE []r=[] #-}
 {-# REWRITE [][] #-}
 
+
+-- identity substitution is neutral (actually, we don't need this fact in
+-- the current development)
+[η] : ∀ {X : Set}(t : LC X) → (t [ η ])  ≡ t
+[η] (η x) = idp
+[η] {X}(lam t) = ap lam ((ap (t [_]) (λ= helper) ◾ ( [η] t)))
+  where
+    helper : (x : X +1) → ∂ η x ≡ η x
+    helper (i x) = idp
+    helper ⋆ = idp
+[η] (app t u) = ap2 app ([η] t) ([η] u)
+{-# REWRITE [η] #-}
+
 {- -----
 
 Interaction between LC and LC'
@@ -184,19 +204,17 @@ app' t u [ f ]' = app' (t [ f ]')(u [ f ]')
 
 
 -- This is the unary substitution
-_[_]₁' : ∀ {X : Set}(t : LC' X)(z : LC X) → LC X
-⋆' [ z ]₁' = z
-η' x [ z ]₁' = η x
-lam' x [ z ]₁' = lam (x [ z [ i ]r ]₁')
-app' t u [ z ]₁' = app (t [ z ]₁')(u [ z ]₁')
+_[_]₁ : ∀ {X : Set}(t : LC' X)(z : LC X) → LC X
+⋆' [ z ]₁ = z
+η' x [ z ]₁ = η x
+lam' x [ z ]₁ = lam (x [ z [ i ]r ]₁)
+app' t u [ z ]₁ = app (t [ z ]₁)(u [ z ]₁)
 
 
 {-
 We postulate the existence of a reduction module over LC.
 Postulating it has the technical advantage that Agda accept rewrite rules.
 
-We don't postulate the fact that the identity substitution is neutral, as
-it is not needed for the purpose of our proof.
 -}
 postulate
   Red : Set → Set
@@ -205,6 +223,9 @@ postulate
   [][]R :
     ∀ {X : Set}(m : Red X){Y : Set}(f : X → LC Y){Z : Set}(g : Y → LC Z) →
     ((m [ f ]R) [ g ]R) ≡ ( m [ ( λ x → (f x) [ g ] )  ]R )
+
+  -- this fact is actually not needed for our purpose
+  [η]R : ∀ {X : Set}(m : Red X) → (m [ η ]R)  ≡ m
 
   -- π₁ is called source in the paper
   -- π₂ is called target in the paper
@@ -236,6 +257,7 @@ postulate
 
 -- all these equalities become definitional
 {-# REWRITE [][]R #-}
+{-# REWRITE [η]R #-}
 {-# REWRITE π₁[] #-}
 {-# REWRITE π₂[] #-}
 {-# REWRITE π₁abs #-}
@@ -308,6 +330,20 @@ refl x [ f ]* = refl (x [ f ])
 [][]* (l ﹐ h ∣ x) f g = ap (_ ﹐ _ ∣_) ([][]w+ f g x)
 
 {-# REWRITE [][]* #-}
+
+map-id-lred : {X : Set}(l : List (Red X)) → (map (λ x → x) l) ≡ l
+map-id-lred = map-id 
+
+{-# REWRITE map-id-lred #-}
+
+-- identity substitution is neutral (actually, this is not needed for our purpose)
+[η]w+ : ∀ {X : Set}{h : Red X}{l}(x : wRed+ h l) → (x [ η ]w+)  ≡ x
+[η]w+ {l = nil} w = idp
+[η]w+ {l = x ∷ l} (eq , w) = ap2 _,_ (ap-idf eq) ([η]w+ w)
+
+[η]R* : ∀ {X : Set}(m : Red* X) → (m [ η ]*)  ≡ m
+[η]R* (refl x) = idp
+[η]R* (l ﹐ h ∣ x) = ap (_ ﹐ _ ∣_) ([η]w+ x)
 
 
 {-
@@ -645,13 +681,13 @@ cong-app* m n = cong-appl* (π₁* n) m ^^ cong-appr* (π₂* m) n ∣ idp
 α[] f (app' T U) m  =  ap2 cong-app* (α[] f T m) (α[] f U m)
 
 -- Third step: the reduction lies between the expected terms
-π₁α : {X : Set} (T : LC' X)(m : Red* X) → π₁* (α T m) ≡ (T [ π₁* m ]₁')
+π₁α : {X : Set} (T : LC' X)(m : Red* X) → π₁* (α T m) ≡ (T [ π₁* m ]₁)
 π₁α ⋆' m = idp
 π₁α (η' x) m = idp
 π₁α (lam' x) m rewrite π₁α x (m [ (λ x₁ → η (i x₁)) ]*) = idp
 π₁α (app' T U) m rewrite π₁α T m | π₁α U m = idp
 
-π₂α : {X : Set} (T : LC' X)(m : Red* X) → π₂* (α T m) ≡ (T [ π₂* m ]₁')
+π₂α : {X : Set} (T : LC' X)(m : Red* X) → π₂* (α T m) ≡ (T [ π₂* m ]₁)
 π₂α ⋆' m = idp
 π₂α (η' x) m = idp
 π₂α (lam' x) m rewrite π₂α x (m [ (λ x₂ → η (i x₂)) ]*) = idp
